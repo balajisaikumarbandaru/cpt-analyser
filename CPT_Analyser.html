@@ -574,7 +574,10 @@ function parseDelimited(text, fname){
   const lines = text.split(/\r?\n/).filter(l => l.trim());
   const sample = lines.slice(0, 30).join('\n');
   const cnt = c => (sample.match(new RegExp(c === '\t' ? '\t' : '\\' + c, 'g')) || []).length;
-  const sep = cnt('\t') > 20 ? '\t' : cnt(';') > cnt(',') ? ';' : cnt(',') > 20 ? ',' : /\s+/;
+  // same non-zero number of ';' on (nearly) every line → ';' separated, even with decimal commas (1,25;3,40;…)
+  const semis = lines.slice(0, 30).map(l => l.split(';').length - 1);
+  const evenSemi = semis.some(c => c > 0 && semis.filter(d => d === c).length >= 0.9 * semis.length);
+  const sep = cnt('\t') > 20 ? '\t' : evenSemi || cnt(';') > cnt(',') ? ';' : cnt(',') > 20 ? ',' : /\s+/;
   const rows = lines.map(l => l.split(sep).map(s => s.trim().replace(/^"|"$/g, '')));
   return rowsToCPT(rows, fname, blankHeader(), 'csv');
 }
@@ -686,21 +689,24 @@ function finishOpen(ok, errs, focus){
 function median(a){ const b = a.filter(fin).sort((x, y) => x - y); if (!b.length) return 0; const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m-1] + b[m]) / 2; }
 /* CPTask-style spike filter: a single-sample peak (local extreme that sticks out well
    beyond the local noise level) is replaced by the mean of its neighbours. Running it
-   N times removes peaks up to ~N samples wide. */
+   N times removes peaks up to ~N samples wide. A sample next to a bigger peak is left
+   alone in that pass: judged against that peak it only looks like its mirror image. */
 function spikeFilter(a, passes, k){
   let x = a.slice(); const n = x.length;
   for (let p = 0; p < passes; p++){
     const dev = [];
     for (let i = 1; i < n - 1; i++){ const r = Math.abs(x[i] - (x[i-1] + x[i+1]) / 2); if (fin(r)) dev.push(r); }
     const noise = 1.4826 * median(dev);
-    const y = x.slice();
+    const s = new Array(n).fill(0);   // how far each detected peak sticks out, 0 = no peak
     for (let i = 1; i < n - 1; i++){
       const a0 = x[i-1], a1 = x[i], a2 = x[i+1];
       if (!fin(a0) || !fin(a1) || !fin(a2)) continue;
       const m = (a0 + a2) / 2;
       const thr = Math.max(k * noise, 0.05 * Math.abs(m), 1e-6);
-      if ((a1 > Math.max(a0, a2) || a1 < Math.min(a0, a2)) && Math.abs(a1 - m) > thr) y[i] = m;
+      if ((a1 > Math.max(a0, a2) || a1 < Math.min(a0, a2)) && Math.abs(a1 - m) > thr) s[i] = Math.abs(a1 - m);
     }
+    const y = x.slice();
+    for (let i = 1; i < n - 1; i++) if (s[i] > 0 && s[i-1] <= s[i] && s[i+1] <= s[i]) y[i] = (x[i-1] + x[i+1]) / 2;
     x = y;
   }
   return x;
@@ -1264,7 +1270,9 @@ function render(){
   }
   if (T === 'graph'){
     const pages = plotPages(c); state.page = clamp(state.page, 0, pages.length - 1);
-    v.innerHTML = `<div class="graph"><div class="gcol"><div class="pnav">${pages.length > 1 ? `<button class="btn small" data-pg="-1">◀</button><span>${t('Page')} ${state.page + 1} / ${pages.length}</span><button class="btn small" data-pg="1">▶</button>` : ''}<span class="sp"></span><span class="note">${t('View')}</span><button class="btn small" data-zm="fit">${t('Fit')}</button><button class="btn small" data-zm="out">−25%</button><button class="btn small" data-zm="in">+25%</button></div><div class="page-wrap" id="plotWrap"></div></div><div class="ctrl" id="ctrl">${ctrlHTML()}</div></div>`;
+    const keepScroll = $('#ctrl') ? $('#ctrl').scrollTop : 0;      // don't jump the side panel to the top on every change
+    v.innerHTML =`<div class="graph"><div class="gcol"><div class="pnav">${pages.length > 1 ? `<button class="btn small" data-pg="-1">◀</button><span>${t('Page')} ${state.page + 1} / ${pages.length}</span><button class="btn small" data-pg="1">▶</button>` : ''}<span class="sp"></span><span class="note">${t('View')}</span><button class="btn small" data-zm="fit">${t('Fit')}</button><button class="btn small" data-zm="out">−25%</button><button class="btn small" data-zm="in">+25%</button></div><div class="page-wrap" id="plotWrap"></div></div><div class="ctrl" id="ctrl">${ctrlHTML()}</div></div>`;
+    $('#ctrl').scrollTop = keepScroll;
     drawPlot();
   }
   else if (T === 'chart') v.innerHTML = chartHTML(c);
@@ -1642,7 +1650,7 @@ function helpHTML(){
   <ul><li><b>GEF CPT</b> – qc, fs, u1/u2/u3, inclination, time, corrected depth and any other columns (temperature, conductivity, Qst, Qt …) which become extra graphs.</li>
   <li><b>GEF dissipation</b> (GEF-DISS-Report, e.g. <i>name_D01.GEF</i>) – opens as a dissipation test with u0, ui, t50, ch. If its parent CPT is open the test depth is marked on the pore-pressure graph.</li>
   <li><b>GME</b> raw Geomil data – select the header (.0xx, e.g. .0EF / .001) and data (.1xx) files together. fs is shifted to cone depth automatically. Inclination channels are not converted.</li>
-  <li><b>Excel / CSV</b> – depth, qc, fs, u, I, Qst, Qt columns, by header name or in that order. CPTask Excel exports (Header + Data sheets) are recognised.</li>
+  <li><b>Excel / CSV</b> – depth, qc, fs, u, I, Qst, Qt columns, by header name or in that order. CSV may be separated by commas, semicolons (also with decimal commas), tabs or spaces. CPTask Excel exports (Header + Data sheets) are recognised.</li>
   <li><b>Settings files</b> (.cptset.json) – open together with a CPT of the same name to give that CPT its own settings.</li></ul>
   <h2>New CPT</h2><p>File ▸ New CPT: enter length, interval and signals; an empty CPT opens in the Data tab. Type values, or paste a column from Excel into the first cell. Fill in the Header tab, then File ▸ Save GEF.</p>
   <h2>Graph</h2><p>International plot: tick graphs, set min/max/log, put each graph on page 1–4 and give it a width (0.5–3×). <b>Depth per page</b> splits deep CPTs over several pages. Dutch plot: two graphs on the left, one reversed graph on the right. The page arrows step through pages; View ▸ Fit / ±25% zooms the screen view.</p>
