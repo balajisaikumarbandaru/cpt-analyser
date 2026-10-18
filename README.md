@@ -117,3 +117,7 @@ English, Nederlands and Deutsch built in. **Custom…** loads your own translati
 - Correlations (Dr, φ′, Su, N60, γ) are indicative and should be checked against site-specific data.
 - For GME subtraction cones (cone type S) the sleeve channel is corrected with an assumed sleeve area of 15 × the tip area.
 - Not affiliated with Geomil Equipment B.V.; CPTask is their product. The equations and processing steps follow publicly documented methods.
+
+## Licence
+
+MIT – see [LICENSE](LICENSE).
