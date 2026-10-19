@@ -128,6 +128,12 @@ table.meth th{color:var(--muted)}
 .kv b{font-weight:600}
 #print{display:none}
 [hidden]{display:none!important}
+.view-only{display:none}
+.viewonly .view-only{display:inline-flex}
+.viewonly .edit-only{display:none!important}
+.viewonly table.data td.ed{cursor:default}
+.viewonly #view input[readonly]{background:transparent;border-color:var(--line2)}
+.badge{align-items:center;padding:2px 9px;border-radius:999px;background:var(--sel);color:var(--accent);font-size:12px;font-weight:600}
 @media (max-width:860px){
   .app{grid-template-columns:1fr;height:auto}
   .side{border-right:0;border-bottom:1px solid var(--line);max-height:180px}
@@ -150,7 +156,8 @@ table.meth th{color:var(--muted)}
 <body>
 <header class="bar">
   <div class="brand">CPT Analyser</div>
-  <div class="menu">
+  <span class="badge view-only" data-t="View only">View only</span>
+  <div class="menu edit-only">
     <button class="btn" id="bFile"><span data-t="File">File</span> ▾</button>
     <div class="menu-pop" id="filePop" hidden>
       <button data-f="new" data-t="New CPT…">New CPT…</button>
@@ -164,8 +171,8 @@ table.meth th{color:var(--muted)}
       <button data-f="closeall" data-t="Close all">Close all</button>
     </div>
   </div>
-  <label class="btn primary"><span data-t="Open files">Open files</span><input type="file" id="fOpen" multiple hidden></label>
-  <label class="btn"><span data-t="Open folder">Open folder</span><input type="file" id="fDir" webkitdirectory multiple hidden></label>
+  <label class="btn primary edit-only"><span data-t="Open files">Open files</span><input type="file" id="fOpen" multiple hidden></label>
+  <label class="btn edit-only"><span data-t="Open folder">Open folder</span><input type="file" id="fDir" webkitdirectory multiple hidden></label>
   <div class="menu">
     <button class="btn" id="bExport"><span data-t="Export">Export</span> ▾</button>
     <div class="menu-pop" id="exportPop" hidden>
@@ -176,14 +183,16 @@ table.meth th{color:var(--muted)}
       <hr>
       <button data-x="xlsx" data-t="Excel – current CPT">Excel – current CPT</button>
       <button data-x="xlsxall" data-t="Excel – all open CPTs (zip)">Excel – all open CPTs (zip)</button>
-      <hr>
-      <button data-x="gef" data-t="GEF file – current CPT">GEF file – current CPT</button>
-      <button data-x="gefall" data-t="GEF files – all open CPTs (zip)">GEF files – all open CPTs (zip)</button>
+      <hr class="edit-only">
+      <button class="edit-only" data-x="gef" data-t="GEF file – current CPT">GEF file – current CPT</button>
+      <button class="edit-only" data-x="gefall" data-t="GEF files – all open CPTs (zip)">GEF files – all open CPTs (zip)</button>
       <hr>
       <button data-x="png" data-t="Plot PNG – current page">Plot PNG – current page</button>
       <button data-x="jpg" data-t="Plot JPG – current page">Plot JPG – current page</button>
       <button data-x="svg" data-t="Plot SVG – current page">Plot SVG – current page</button>
       <button data-x="dxf" data-t="Plot DXF – current page">Plot DXF – current page</button>
+      <hr class="edit-only">
+      <button class="edit-only" data-x="html" data-t="View-only HTML – all open CPTs">View-only HTML – all open CPTs</button>
     </div>
   </div>
   <div class="menu">
@@ -202,7 +211,7 @@ table.meth th{color:var(--muted)}
 </header>
 <div class="app">
   <aside class="side">
-    <div class="side-h"><span><span data-t="Open CPTs">Open CPTs</span> <span id="cnt"></span></span><button class="btn small" id="bCloseAll" data-t="Close all">Close all</button></div>
+    <div class="side-h"><span><span data-t="Open CPTs">Open CPTs</span> <span id="cnt"></span></span><button class="btn small edit-only" id="bCloseAll" data-t="Close all">Close all</button></div>
     <ul id="list"></ul>
   </aside>
   <main>
@@ -213,10 +222,10 @@ table.meth th{color:var(--muted)}
       <button data-tab="data" data-t="Data">Data</button>
       <button data-tab="header" data-t="Header">Header</button>
       <button data-tab="compare" data-t="Compare">Compare</button>
-      <button data-tab="projects" data-t="Projects">Projects</button>
+      <button class="edit-only" data-tab="projects" data-t="Projects">Projects</button>
       <button data-tab="factors" data-t="Settings / factors">Settings / factors</button>
       <button data-tab="methods" data-t="Equations">Equations</button>
-      <button data-tab="help" data-t="Help">Help</button>
+      <button class="edit-only" data-tab="help" data-t="Help">Help</button>
     </nav>
     <section id="view"></section>
   </main>
@@ -247,6 +256,16 @@ const fin = v => typeof v === 'number' && isFinite(v);
 const log10 = Math.log10;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const clone = o => JSON.parse(JSON.stringify(o));
+
+/* ---------- View-only copy (Export ▸ View-only HTML) ----------
+   The page as loaded, before anything is rendered, is the template for the export.
+   A view-only copy carries its CPTs and settings in <script id="cpta-view">; NaN is
+   stored as null inside arrays. */
+const APP_HTML = '<!doctype html>\n' + document.documentElement.outerHTML;
+const VIEW = (() => {
+  const el = document.getElementById('cpta-view'); if (!el) return null;
+  try { return JSON.parse(el.textContent, function(k, v){ return v === null && Array.isArray(this) ? NaN : v; }); } catch (e) { return null; }
+})();
 
 /* ---------- Translations ---------- */
 const I18N = {nl: {}, de: {}};   // filled further down
@@ -342,13 +361,14 @@ function normalise(s){
   return s;
 }
 function loadSettings(){
+  if (VIEW){ CUSTOM = VIEW.custom || {}; return normalise(Object.assign(clone(DEFAULTS), VIEW.settings, {lang: VIEW.lang || 'en'})); }
   let s = clone(DEFAULTS);
   try { const st = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); if (st) s = Object.assign(s, st); } catch (e) {}
   s = normalise(s);
   try { CUSTOM = JSON.parse(localStorage.getItem(LS_KEY + '.custom') || '{}'); } catch (e) { CUSTOM = {}; }
   return s;
 }
-function saveSettings(){ try { localStorage.setItem(LS_KEY, JSON.stringify({lang:S.lang, factors:S.factors, plot:S.plot, scales:S.scales})); } catch (e) {} }
+function saveSettings(){ if (VIEW) return; try { localStorage.setItem(LS_KEY, JSON.stringify({lang:S.lang, factors:S.factors, plot:S.plot, scales:S.scales})); } catch (e) {} }
 
 const state = { cpts: [], cur: -1, tab: 'graph', drag: null, page: 0, zoom: 1, cmp: {mode:'tile', sig:'qc', ids:null}, proj: {dir:null, rows:null, src:null, srcRows:null, files:null} };
 const S = loadSettings();
@@ -1242,17 +1262,29 @@ function applyStatic(){
   $('#drop').textContent = t('Drop CPT files to open');
   $('#lang').value = S.lang;
   document.documentElement.lang = S.lang === 'custom' ? 'en' : S.lang;
-  if (!$('#status').textContent || $('#status').dataset.idle) { setStatus(t('Drop GEF, GME, CSV or Excel files anywhere on the page')); $('#status').dataset.idle = 1; }
+  if (!$('#status').textContent || $('#status').dataset.idle) { setStatus(VIEW ? `${t('View-only copy – data and settings cannot be changed.')} · ${(VIEW.created || '').slice(0, 10)}` : t('Drop GEF, GME, CSV or Excel files anywhere on the page')); $('#status').dataset.idle = 1; }
 }
 function renderList(){
   $('#cnt').textContent = state.cpts.length ? `(${state.cpts.length})` : '';
   $('#list').innerHTML = state.cpts.map((c, i) => {
     const info = c.kind === 'diss' ? `<span class="tag">${t('diss')}</span>` : `<span class="dp">${fmt(Math.max(...c.d.z.filter(fin), 0), 1)} m</span>`;
     const own = c.cfg ? ` <span class="tag" title="${esc(t('Has its own settings'))}">⚙</span>` : '';
-    return `<li data-i="${i}" class="${i === state.cur ? 'on' : ''}" title="${esc(c.file)}"><span class="nm">${esc(c.h.testId)} ${info}${own}</span><button class="x" data-close="${i}" title="${esc(t('Close'))}">✕</button></li>`;
+    return `<li data-i="${i}" class="${i === state.cur ? 'on' : ''}" title="${esc(c.file)}"><span class="nm">${esc(c.h.testId)} ${info}${own}</span>${VIEW ? '' : `<button class="x" data-close="${i}" title="${esc(t('Close'))}">✕</button>`}</li>`;
   }).join('');
 }
-function render(){
+function render(){ renderTab(); if (VIEW) lockView(); }
+/* View-only copy: controls that only change how things are shown stay live; everything
+   else keeps showing its value but is disabled, and pure action buttons are hidden. */
+const VIEW_OK = '[data-pg],[data-zm],#bFit,[data-cmp],[data-cmpid],[data-cmpsig],[data-plot="chartColour"],[data-act="cmpAll"],[data-act="cmpNone"],[data-act="printCmp"],[data-act="printData"]';
+function lockView(){
+  $('#view').querySelectorAll('input,select,textarea,button').forEach(el => {
+    if (el.matches(VIEW_OK)) return;
+    if (el.matches('.btn,[data-mv],[data-all]')){ el.hidden = el.disabled = true; return; }
+    if (el.matches('input[type=text],input[type=number],textarea')) el.readOnly = true;   // value can still be selected and copied
+    else el.disabled = true;
+  });
+}
+function renderTab(){
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === state.tab));
   const v = $('#view'), c = cur();
   const T = state.tab;
@@ -1391,12 +1423,12 @@ function dataHTML(c){
   const body = [];
   for (let i = 0; i < n; i++){
     body.push('<tr>' + cols.map(([k, , , dp, ed]) => {
-      if (ed){ const v = rawArr(c, k)[i]; return `<td class="ed${c.edited.has(k + ':' + i) ? ' chg' : ''}" contenteditable="true" data-k="${k}" data-i="${i}">${fin(v) ? v.toFixed(dp) : ''}</td>`; }
+      if (ed){ const v = rawArr(c, k)[i]; return `<td class="ed${c.edited.has(k + ':' + i) ? ' chg' : ''}"${VIEW ? '' : ' contenteditable="true"'} data-k="${k}" data-i="${i}">${fin(v) ? v.toFixed(dp) : ''}</td>`; }
       const v = (d[k] || [])[i];
       return `<td>${k === 'zone' ? (v || '') : fmt(v, dp)}</td>`;
     }).join('') + '</tr>');
   }
-  return `<div class="pane" style="max-width:none"><p class="note" style="margin-top:0">${n} ${t('rows.')} ${t('Shaded "raw" columns hold the measured values and can be edited: type a value, or paste a column (or block) copied from Excel into a cell to fill downwards. Everything else is recalculated. Edits are kept when saving as GEF.')}${c.edited.size ? ` <b>${c.edited.size} ${t('edited value(s).')}</b> <button class="btn small" id="bUndoEdits">${t('Undo all edits')}</button>` : ''} <button class="btn small" data-act="printData">${t('Print data')}</button></p>
+  return `<div class="pane" style="max-width:none"><p class="note" style="margin-top:0">${n} ${t('rows.')} ${VIEW ? t('Shaded "raw" columns hold the measured values; highlighted values were edited before this copy was made.') : t('Shaded "raw" columns hold the measured values and can be edited: type a value, or paste a column (or block) copied from Excel into a cell to fill downwards. Everything else is recalculated. Edits are kept when saving as GEF.')}${c.edited.size ? ` <b>${c.edited.size} ${t('edited value(s).')}</b> <button class="btn small" id="bUndoEdits">${t('Undo all edits')}</button>` : ''} <button class="btn small" data-act="printData">${t('Print data')}</button></p>
   <div class="tblwrap"><table class="data"><thead><tr>${hd}</tr></thead><tbody>${body.join('')}</tbody></table></div></div>`;
 }
 
@@ -1437,7 +1469,7 @@ function headerHTML(c){
   const h = c.h, F = cfg(c).factors;
   const f = HDR_FIELDS.map(([k, l, ty, u]) => `<div class="fld"><label><input type="checkbox" data-all="${k}" title="${esc(t('Tick to copy to all open CPTs'))}"> ${esc(t(l))}</label><input ${ty === 'num' ? 'type="number" step="any"' : 'type="text"'} data-h="${k}" value="${esc(h[k] ?? '')}" placeholder="${k === 'gwl' ? t('default') + ' ' + F.gwlDefault : k === 'alpha' ? t('default') + ' ' + F.alphaDefault : k === 'sleeve' ? t('default') + ' ' + F.sleeveDefault : ''}"><span class="u">${u === 'DATUM' ? esc(F.datum) : esc(u)}</span></div>`).join('');
   return `<div class="pane"><div class="card"><h3>${esc(h.testId)} – ${t('header')}</h3>
-    <p class="note">${t('File')}: ${esc(c.file)} · ${t('source')}: ${esc(c.source.toUpperCase())}${h._warn ? ` · <span style="color:var(--warn)">${esc(h._warn)}</span>` : ''}. ${t('Changes apply immediately. Tick fields and press the button to copy them to every open CPT (CPTask "Edit project").')}</p>
+    <p class="note">${t('File')}: ${esc(c.file)} · ${t('source')}: ${esc(c.source.toUpperCase())}${h._warn ? ` · <span style="color:var(--warn)">${esc(h._warn)}</span>` : ''}.${VIEW ? '' : ' ' + t('Changes apply immediately. Tick fields and press the button to copy them to every open CPT (CPTask "Edit project").')}</p>
     <div class="grid2">${f}</div>
     <div class="row" style="margin-top:10px"><button class="btn" id="bApplyAll">${t('Copy ticked fields to all open CPTs')}</button></div></div></div>`;
 }
@@ -1470,9 +1502,9 @@ function factorsHTML(){
     ${b('soilLimit','Dr/φ only for Ic<2.6, Su only for Ic≥2.6')}${n('minLayer','Minimum layer thickness','m')}
   </div></div>
   <div class="card"><h3>${t('Plot labels')}</h3><div class="grid2">${tx('company','Title block heading')}${tx('datum','Height datum label')}</div></div>
-  <div class="card"><h3>${t('Settings files')}</h3>
+  ${VIEW ? '' : `<div class="card"><h3>${t('Settings files')}</h3>
     <div class="row"><button class="btn" data-act="setSave">${t('Save settings to file…')}</button><button class="btn" data-act="setLoad">${t('Load settings from file…')}</button><button class="btn" data-act="setDefault">${t('Save settings as default')}</button><button class="btn" id="bResetFac">${t('Reset to factory defaults')}</button></div>
-    <p class="note">${t('A settings file named like a CPT (e.g. CPT-101.cptset.json) is attached to that CPT when opened together with it. Global settings are also remembered in this browser.')}</p></div>
+    <p class="note">${t('A settings file named like a CPT (e.g. CPT-101.cptset.json) is attached to that CPT when opened together with it. Global settings are also remembered in this browser.')}</p></div>`}
   </div>`;
 }
 
@@ -1659,6 +1691,7 @@ function helpHTML(){
   <h2>Compare</h2><p>Tile shows several CPTs side by side with SBT columns; Overlay draws one signal of all ticked CPTs on one chart.</p>
   <h2>Settings</h2><p>Settings are global unless you choose <b>Separate settings</b> for a CPT. Save / load settings files, or save them as the default. The header button copies project fields to all CPTs (Edit project).</p>
   <h2>Exports and printing</h2><p>Data CSV (single, combined, zip), layer summary, Excel (.xlsx with Header and Data sheets, single or zip), GEF (single or zip), plot PNG / JPG / SVG / DXF. Print / PDF prints plots (all pages), all CPTs, the data table or the compare view – choose "Save as PDF" in the print dialog.</p>
+  <p><b>View-only HTML</b> saves every open CPT (all projects) with the current settings in one HTML file. Anyone can open it in a browser to see the plots, SBT chart, layers, data, header, compare and dissipation views, print them and export data or plots – but nothing can be edited, opened or saved back.</p>
   <h2>Languages</h2><p>English, Nederlands and Deutsch are built in. <b>Custom…</b> loads your own translation file; download the template to translate.</p>
   <h2>Not included</h2><ul><li>Soil classification from the Qt–Bq chart and the Fr/Bq average (CPTask "Soil (Qt, Bq)"): no reliable published boundary definition is available, so only the Qt–Fr classification is given.</li>
   <li>GME dissipation files (.Dxx): no sample files were available to verify the format; use GEF dissipation files.</li>
@@ -1691,15 +1724,15 @@ $('#fLang').addEventListener('change', async e => {
   S.lang = 'custom'; persist(); closeModal(); applyStatic(); renderList(); render(); setStatus(`${Object.keys(d).length} ${t('terms loaded')}`);
 });
 function applySettings(target, st){ const n = normalise(clone(st)); target.factors = n.factors; target.plot = n.plot; target.scales = n.scales; }
-$('#lang').addEventListener('change', e => { if (e.target.value === 'custom'){ langDialog(); e.target.value = S.lang; if (Object.keys(CUSTOM).length){ S.lang = 'custom'; } } else S.lang = e.target.value; persist(); applyStatic(); renderList(); render(); });
+$('#lang').addEventListener('change', e => { if (e.target.value === 'custom'){ if (!VIEW) langDialog(); e.target.value = S.lang; if (Object.keys(CUSTOM).length){ S.lang = 'custom'; } } else S.lang = e.target.value; persist(); applyStatic(); renderList(); render(); });
 $('#tabs').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if (b){ state.tab = b.dataset.tab; render(); } });
 $('#list').addEventListener('click', e => {
   const x = e.target.closest('[data-close]');
-  if (x){ const i = +x.dataset.close; state.cpts.splice(i, 1); if (state.cur >= state.cpts.length) state.cur = state.cpts.length - 1; else if (state.cur > i) state.cur--; renderList(); render(); return; }
+  if (x && !VIEW){ const i = +x.dataset.close; state.cpts.splice(i, 1); if (state.cur >= state.cpts.length) state.cur = state.cpts.length - 1; else if (state.cur > i) state.cur--; renderList(); render(); return; }
   const li = e.target.closest('li[data-i]'); if (li){ state.cur = +li.dataset.i; state.page = 0; renderList(); render(); }
 });
 function closeAll(){ state.cpts = []; state.cur = -1; state.cmp.ids = null; renderList(); render(); }
-$('#bCloseAll').addEventListener('click', closeAll);
+$('#bCloseAll').addEventListener('click', () => { if (!VIEW) closeAll(); });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape'){ closeModal(); document.querySelectorAll('.menu-pop').forEach(m => m.hidden = true); }
   if (e.target.matches('input,select,textarea,[contenteditable]')) return;
@@ -1737,6 +1770,8 @@ $('#modal').addEventListener('keydown', e => { if (e.key === 'Enter' && $('#nLen
 const view = $('#view');
 view.addEventListener('click', async e => {
   const tg = e.target, C = CC();
+  const ctl = tg.closest('button,[data-act]');
+  if (VIEW && ctl && !ctl.matches(VIEW_OK)) return;
   const pb = tg.closest('button[data-plot]');
   if (pb){ C.plot[pb.dataset.plot] = pb.dataset.v; state.page = 0; afterCfg(false); return; }
   const mv = tg.closest('button[data-mv]');
@@ -1795,6 +1830,7 @@ view.addEventListener('click', async e => {
 function afterCfg(reproc){ const c = cur(); if (reproc){ if (c && c.cfg) processCPT(c); else reprocessAll(); } persist(); render(); }
 view.addEventListener('change', e => {
   const tg = e.target, ds = tg.dataset, C = CC();
+  if (VIEW && !tg.matches(VIEW_OK)) return;
   if (ds.track){ const a = C.plot.tracks; if (tg.checked){ if (!a.some(x => x.k === ds.track)) a.push({k: ds.track, page: 1, w: 1}); } else C.plot.tracks = a.filter(x => x.k !== ds.track); afterCfg(false); return; }
   if (ds.tp){ C.plot.tracks.find(x => x.k === ds.tp).page = +tg.value; state.page = 0; afterCfg(false); return; }
   if (ds.tw){ C.plot.tracks.find(x => x.k === ds.tw).w = +tg.value; afterCfg(false); return; }
@@ -1820,6 +1856,7 @@ function setRaw(c, k, i, v){
   if (arr[i] === o || (!fin(arr[i]) && !fin(o))) c.edited.delete(k + ':' + i); else c.edited.add(k + ':' + i);
 }
 view.addEventListener('focusout', e => {
+  if (VIEW) return;
   const td = e.target.closest && e.target.closest('td.ed'); if (!td) return;
   const c = cur(), k = td.dataset.k, i = +td.dataset.i, v = num(td.textContent.trim());
   const old = rawArr(c, k)[i];
@@ -1832,6 +1869,7 @@ view.addEventListener('focusout', e => {
   setStatus(`${c.h.testId}: ${c.edited.size} ${t('edited value(s).')}`);
 });
 view.addEventListener('paste', e => {
+  if (VIEW) return;
   const td = e.target.closest && e.target.closest('td.ed'); if (!td) return;
   const txt = (e.clipboardData || window.clipboardData).getData('text'); if (!txt) return;
   const lines = txt.replace(/\r/g, '').split('\n').filter((l, i, a) => l.length || i < a.length - 1);
@@ -1886,11 +1924,12 @@ view.addEventListener('dblclick', e => { if (e.target.closest && e.target.closes
 window.addEventListener('resize', () => { if (state.tab === 'graph') drawPlot(); });
 
 let dragDepth = 0;
-window.addEventListener('dragenter', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')){ dragDepth++; $('#drop').hidden = false; e.preventDefault(); } });
+window.addEventListener('dragenter', e => { if (!VIEW && [...(e.dataTransfer?.types || [])].includes('Files')){ dragDepth++; $('#drop').hidden = false; e.preventDefault(); } });
 window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('#drop').hidden = true; });
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', async e => {
   e.preventDefault(); dragDepth = 0; $('#drop').hidden = true;
+  if (VIEW) return;
   const items = [...(e.dataTransfer.items || [])], files = [];
   const walk = async (entry, path) => {
     if (entry.isFile){ const f = await new Promise(r => entry.file(r)); try { Object.defineProperty(f, 'webkitRelativePath', {value: path + f.name}); } catch (er) {} files.push(f); }
@@ -2073,9 +2112,47 @@ function rasterise(svg, W, H, type, name){
   img.onload = () => { const cv = document.createElement('canvas'); cv.width = W * k; cv.height = H * k; const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0); cv.toBlob(b => download(b, name), type, 0.92); };
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
 }
+/* View-only HTML: this page with every open CPT and the current settings embedded.
+   It opens straight into the data, keeps every tab, plot, table, print and data export,
+   but nothing can be edited, opened or saved back. */
+const viewTitle = (sep = ', ') => { const pj = [...new Set(state.cpts.map(c => c.h.jobNo || c.h.project).filter(Boolean))]; return pj.length ? pj.join(sep) : 'CPT'; };
+function viewHTML(){
+  const all = state.cpts.filter(c => c.kind === 'cpt');
+  const snap = {
+    app: 'CPT Analyser', created: new Date().toISOString(), title: viewTitle(),
+    lang: S.lang, custom: S.lang === 'custom' ? CUSTOM : undefined,
+    settings: {factors: S.factors, plot: S.plot, scales: S.scales},
+    sig: Object.fromEntries(Object.entries(SIG).filter(([, s]) => s.extra)),
+    cur: state.cur, tab: ['projects', 'help'].includes(state.tab) ? 'graph' : state.tab,
+    cmp: {mode: state.cmp.mode, sig: state.cmp.sig, sel: cmpList().map(c => all.indexOf(c))},
+    cpts: state.cpts.map(c => ({kind: c.kind, file: c.file, source: c.source, h: c.h, raw: c.raw, cfg: c.cfg, diss: c.diss, edited: [...c.edited]}))
+  };
+  // 10 significant digits drops float noise (e.g. kPa → MPa) without changing any result
+  const json = JSON.stringify(snap, (k, v) => typeof v === 'number' && fin(v) ? +v.toPrecision(10) : v).replace(/</g, '\\u003c');
+  return APP_HTML.replace('</head>', () => `<script type="application/json" id="cpta-view">${json}<\/script>\n</head>`);
+}
+function loadView(){
+  Object.assign(SIG, VIEW.sig || {}); ensureScales(S.scales);
+  for (const o of VIEW.cpts || []){
+    const c = makeCPT(o.file, o.h, o.raw, null, o.source);
+    if (o.kind === 'diss'){ c.kind = 'diss'; c.diss = o.diss; }
+    if (o.cfg) c.cfg = normalise(o.cfg);
+    c.edited = new Set(o.edited || []);
+    addCPT(c);
+  }
+  state.cpts.filter(x => x.kind === 'diss').forEach(processDiss);   // parent CPTs are loaded now
+  state.cur = state.cpts.length ? clamp(VIEW.cur ?? 0, 0, state.cpts.length - 1) : -1;
+  state.tab = VIEW.tab || 'graph';
+  const all = state.cpts.filter(x => x.kind === 'cpt'), C = VIEW.cmp || {};
+  state.cmp.mode = C.mode || 'tile'; if (SIG[C.sig]) state.cmp.sig = C.sig;
+  if (C.sel) state.cmp.ids = new Set(C.sel.map(i => all[i]).filter(Boolean).map(x => x.id));
+  document.documentElement.classList.add('viewonly');
+  document.title = `${VIEW.title || 'CPT'} – CPT Analyser (${t('View only')})`;
+  if (!Object.keys(CUSTOM).length) $('#lang option[value="custom"]').remove();
+}
 function doExport(kind){
   const c = cur();
-  if (!state.cpts.length || (!c && !/all|layers|zip/.test(kind))){ setStatus(t('Open a CPT first')); return; }
+  if (!state.cpts.length || (!c && !/all|layers|zip|html/.test(kind))){ setStatus(t('Open a CPT first')); return; }
   const base = c ? safe(c.h.testId) : 'CPT';
   const plotKinds = ['png', 'jpg', 'svg', 'dxf'];
   if (plotKinds.includes(kind) && c.kind !== 'cpt'){ setStatus(t('Plot exports are for CPTs; use Print for dissipation tests')); return; }
@@ -2087,6 +2164,7 @@ function doExport(kind){
   if (kind === 'xlsx') download(new Blob([excelOf(c)]), base + '.xlsx');
   if (kind === 'xlsxall') download(new Blob([zipBytes(state.cpts.map(x => ({name: safe(x.h.testId) + '.xlsx', data: excelOf(x)})))]), 'CPT_excel.zip');
   if (kind === 'gef') download(toGEF(c), base + (c.edited.size ? '_edited' : '') + '.gef');
+  if (kind === 'html') download(viewHTML(), safe(viewTitle('_')) + '_view_only.html', 'text/html');
   if (kind === 'gefall') download(new Blob([zipBytes(state.cpts.map(x => ({name: safe(x.h.testId) + '.gef', data: toGEF(x)})))]), 'CPT_gef.zip');
   if (kind === 'svg') download(new Blob([new XMLSerializer().serializeToString(currentSVG())], {type: 'application/octet-stream'}), base + pg + '.svg');
   if (kind === 'dxf') download(toDXF(c), base + pg + '.dxf', 'application/dxf');
@@ -2378,6 +2456,7 @@ Object.assign(I18N.nl, {
 "Settings files": "Instellingenbestanden",
 "Settings loaded": "Instellingen geladen",
 "Shaded \"raw\" columns hold the measured values and can be edited: type a value, or paste a column (or block) copied from Excel into a cell to fill downwards. Everything else is recalculated. Edits are kept when saving as GEF.": "De gearceerde \"ruw\"-kolommen bevatten de gemeten waarden en kunnen worden bewerkt: typ een waarde, of plak een kolom (of blok) uit Excel in een cel om naar beneden te vullen. Al het andere wordt herberekend. Bewerkingen blijven behouden bij opslaan als GEF.",
+"Shaded \"raw\" columns hold the measured values; highlighted values were edited before this copy was made.": "De gearceerde \"ruw\"-kolommen bevatten de gemeten waarden; gemarkeerde waarden zijn bewerkt voordat deze kopie werd gemaakt.",
 "Shift fs to cone depth": "fs verschuiven naar conusdiepte",
 "Showing": "Weergegeven:",
 "Signal": "Signaal",
@@ -2429,6 +2508,9 @@ Object.assign(I18N.nl, {
 "Very stiff sand to clayey sand": "Zeer stijf zand tot kleiig zand",
 "Very stiff, fine grained": "Zeer stijf, fijnkorrelig",
 "View": "Weergave",
+"View only": "Alleen bekijken",
+"View-only HTML – all open CPTs": "Alleen-lezen HTML – alle sonderingen",
+"View-only copy – data and settings cannot be changed.": "Alleen-lezen kopie – gegevens en instellingen kunnen niet worden gewijzigd.",
 "W": "B",
 "Water level": "Waterstand",
 "Width": "Breedte",
@@ -2726,6 +2808,7 @@ Object.assign(I18N.de, {
 "Settings files": "Einstellungsdateien",
 "Settings loaded": "Einstellungen geladen",
 "Shaded \"raw\" columns hold the measured values and can be edited: type a value, or paste a column (or block) copied from Excel into a cell to fill downwards. Everything else is recalculated. Edits are kept when saving as GEF.": "Die schattierten \"roh\"-Spalten enthalten die Messwerte und können bearbeitet werden: Wert eingeben oder eine aus Excel kopierte Spalte (bzw. einen Block) in eine Zelle einfügen, um nach unten zu füllen. Alles andere wird neu berechnet. Änderungen bleiben beim Speichern als GEF erhalten.",
+"Shaded \"raw\" columns hold the measured values; highlighted values were edited before this copy was made.": "Die schattierten \"roh\"-Spalten enthalten die Messwerte; hervorgehobene Werte wurden vor dem Erstellen dieser Kopie bearbeitet.",
 "Shift fs to cone depth": "fs auf Spitzentiefe verschieben",
 "Showing": "Angezeigt:",
 "Signal": "Signal",
@@ -2777,6 +2860,9 @@ Object.assign(I18N.de, {
 "Very stiff sand to clayey sand": "Sehr steifer Sand bis toniger Sand",
 "Very stiff, fine grained": "Sehr steif, feinkörnig",
 "View": "Ansicht",
+"View only": "Nur ansehen",
+"View-only HTML – all open CPTs": "Schreibgeschütztes HTML – alle Sondierungen",
+"View-only copy – data and settings cannot be changed.": "Schreibgeschützte Kopie – Daten und Einstellungen können nicht geändert werden.",
 "W": "B",
 "Water level": "Wasserstand",
 "Width": "Breite",
@@ -2832,7 +2918,9 @@ window.CPTA = {
 };
 
 (async () => {
+  if (VIEW) loadView();
   applyStatic(); renderList(); render();
+  if (VIEW) return;
   if (hasFSA()){ const d = await IDB.get('projDir'); if (d) { state.proj.dir = d; if (state.tab === 'projects') render(); } }
 })();
 </script>

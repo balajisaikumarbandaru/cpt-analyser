@@ -96,6 +96,7 @@ Global settings, or separate settings for one CPT. Save / load settings files, s
 - **Excel:** `.xlsx` with Header, Data and Layers sheets – single or all (zip)
 - **GEF:** single or all (zip); the original file layout is kept and only edited values change
 - **Plot:** PNG, JPG, SVG, DXF of the current page
+- **View-only HTML:** every open CPT (all projects) with its header, plots, SBT chart, layers, data, compare and dissipation views in one self-contained HTML file to share – it opens in any browser, can be printed and exported from, but nothing can be edited
 - **Print / PDF:** current CPT (all pages), all CPTs, the data table, or the compare view
 
 ### Languages
